@@ -55,8 +55,9 @@ public class AuthorizationContextMiddlewareIntegrationTests : IAsyncLifetime
         _app.UseShiftAuthorization();
 
         // Add test endpoints
-        _app.MapGet("/test", (IAuthorizationContext? context, TestEndpointService service) =>
+        _app.MapGet("/test", (AuthorizationContextService contextService, TestEndpointService service) =>
         {
+            var context = contextService.Context;
             if (context == null)
             {
                 return Results.Json(new { error = "No authorization context" }, statusCode: 401);
@@ -108,6 +109,15 @@ public class AuthorizationContextMiddlewareIntegrationTests : IAsyncLifetime
         // Act
         var response = await _client!.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
+
+        // Debug: Log the actual response and token claims
+        Console.WriteLine($"Response Status: {response.StatusCode}");
+        Console.WriteLine($"Response Content: {content}");
+        Console.WriteLine($"JwtRegisteredClaimNames.Sub = '{JwtRegisteredClaimNames.Sub}'");
+        var handler = new JwtSecurityTokenHandler();
+        var jsonToken = handler.ReadJwtToken(token);
+        Console.WriteLine($"Token claims: {string.Join(", ", jsonToken.Claims.Select(c => $"{c.Type}={c.Value}"))}");
+
         var result = JsonSerializer.Deserialize<JsonDocument>(content);
 
         // Assert
@@ -229,10 +239,14 @@ public class AuthorizationContextMiddlewareIntegrationTests : IAsyncLifetime
             claims.Add(new Claim("permission", "client:write"));
         }
 
+        var now = DateTime.UtcNow;
+        var expires = now.AddMinutes(expirationMinutes);
+
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddMinutes(expirationMinutes),
+            NotBefore = expirationMinutes < 0 ? expires.AddMinutes(-5) : now, // Set NotBefore before Expires for expired tokens
+            Expires = expires,
             Issuer = _issuer,
             Audience = _audience,
             SigningCredentials = new SigningCredentials(

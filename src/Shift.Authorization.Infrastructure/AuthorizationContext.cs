@@ -23,7 +23,10 @@ public class AuthorizationContext : IAuthorizationContext
         var claims = claimsPrincipal.Claims.ToList();
 
         // Parse basic user information
-        UserId = GetClaimValue(claims, JwtRegisteredClaimNames.Sub);
+        // Try both the standard JWT claim name and the .NET mapped claim type
+        UserId = GetClaimValue(claims, JwtRegisteredClaimNames.Sub)
+                 ?? GetClaimValue(claims, ClaimTypes.NameIdentifier)
+                 ?? GetClaimValue(claims, "sub");
         TenantId = GetClaimValue(claims, "tenant_id");
         ClientId = GetClaimValue(claims, "client_id");
 

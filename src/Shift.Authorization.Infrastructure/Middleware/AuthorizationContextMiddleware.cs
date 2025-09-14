@@ -160,9 +160,13 @@ public class AuthorizationContextMiddleware
                 }
             }
 
-            _logger.LogDebug("JWT token validated successfully for user {UserId} on path {Path}",
-                principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? "unknown",
-                context.Request.Path);
+            var subClaim = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+            var subClaimAlt = principal.FindFirst("sub")?.Value;
+            _logger.LogDebug("JWT token validated successfully for user {UserId} (alt: {AltUserId}) on path {Path}. Claims: {Claims}",
+                subClaim ?? "unknown",
+                subClaimAlt ?? "unknown",
+                context.Request.Path,
+                string.Join(", ", principal.Claims.Select(c => $"{c.Type}={c.Value}")));
 
             return Task.FromResult<ClaimsPrincipal?>(principal);
         }
