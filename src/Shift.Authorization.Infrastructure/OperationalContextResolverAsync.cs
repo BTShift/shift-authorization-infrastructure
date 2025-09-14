@@ -6,21 +6,27 @@ using Microsoft.Extensions.Logging;
 namespace Shift.Authorization.Infrastructure;
 
 /// <summary>
-/// Implementation of operational context resolver that handles HTTP header-based context switching
-/// for SuperAdmin and TenantAdmin users to operate on behalf of different tenants/clients
+/// Async implementation of operational context resolver with database validation support
 /// </summary>
-public class OperationalContextResolver : IOperationalContextResolver
+public class OperationalContextResolverAsync : IOperationalContextResolverAsync
 {
-    private readonly ILogger<OperationalContextResolver> _logger;
+    private readonly ILogger<OperationalContextResolverAsync> _logger;
+    private readonly IClientTenantValidator? _clientTenantValidator;
 
-    public OperationalContextResolver(ILogger<OperationalContextResolver> logger)
+    public OperationalContextResolverAsync(
+        ILogger<OperationalContextResolverAsync> logger,
+        IClientTenantValidator? clientTenantValidator = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
+        _clientTenantValidator = clientTenantValidator;
     }
 
     /// <inheritdoc/>
-    public OperationalContext ResolveContext(HttpContext httpContext, IAuthorizationContext authContext)
+    public async Task<OperationalContext> ResolveContextAsync(
+        HttpContext httpContext,
+        IAuthorizationContext authContext,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(authContext);
@@ -40,7 +46,7 @@ public class OperationalContextResolver : IOperationalContextResolver
         }
 
         // Validate access based on user type
-        if (!ValidateOperationalAccess(targetTenantId, targetClientId, authContext))
+        if (!await ValidateOperationalAccessAsync(targetTenantId, targetClientId, authContext, cancellationToken))
         {
             _logger.LogWarning(
                 "Unauthorized operational context attempt by user {UserId} of type {UserType} for tenant {TenantId} and client {ClientId}",
@@ -63,7 +69,11 @@ public class OperationalContextResolver : IOperationalContextResolver
     }
 
     /// <inheritdoc/>
-    public bool ValidateOperationalAccess(string? targetTenantId, string? targetClientId, IAuthorizationContext authContext)
+    public async Task<bool> ValidateOperationalAccessAsync(
+        string? targetTenantId,
+        string? targetClientId,
+        IAuthorizationContext authContext,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(authContext);
 
@@ -71,26 +81,46 @@ public class OperationalContextResolver : IOperationalContextResolver
         switch (authContext.UserType)
         {
             case UserType.SuperAdmin:
-                // SuperAdmin can set both X-Operation-Tenant-Id and X-Operation-Client-Id
+                // SuperAdmin can set both headers, but validate existence if validator is available
+                if (_clientTenantValidator != null)
+                {
+                    if (!string.IsNullOrEmpty(targetTenantId))
+                    {
+                        var tenantExists = await _clientTenantValidator.TenantExistsAsync(targetTenantId, cancellationToken);
+                        if (!tenantExists)
+                        {
+                            _logger.LogWarning("SuperAdmin {UserId} attempted to access non-existent tenant {TenantId}",
+                                authContext.UserId, targetTenantId);
+                            return false;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(targetClientId))
+                    {
+                        var clientExists = await _clientTenantValidator.ClientExistsAsync(targetClientId, cancellationToken);
+                        if (!clientExists)
+                        {
+                            _logger.LogWarning("SuperAdmin {UserId} attempted to access non-existent client {ClientId}",
+                                authContext.UserId, targetClientId);
+                            return false;
+                        }
+                    }
+                }
+
                 _logger.LogDebug("SuperAdmin {UserId} validated for operational context", authContext.UserId);
                 return true;
 
             case UserType.TenantAdmin:
-                // TenantAdmin can only set X-Operation-Client-Id within their tenant
+                // TenantAdmin cannot change tenant context
                 if (!string.IsNullOrEmpty(targetTenantId))
                 {
-                    // TenantAdmin cannot change tenant context
-                    _logger.LogWarning(
-                        "TenantAdmin {UserId} attempted to set X-Operation-Tenant-Id",
-                        authContext.UserId);
+                    _logger.LogWarning("TenantAdmin {UserId} attempted to set X-Operation-Tenant-Id", authContext.UserId);
                     return false;
                 }
 
-                // If client ID is specified, validate it belongs to the tenant
+                // Validate client belongs to tenant
                 if (!string.IsNullOrEmpty(targetClientId))
                 {
-                    // In a real implementation, this would validate against a database
-                    // For now, we'll assume the validation passes if the user has a tenant ID
                     if (string.IsNullOrEmpty(authContext.TenantId))
                     {
                         _logger.LogWarning(
@@ -99,22 +129,34 @@ public class OperationalContextResolver : IOperationalContextResolver
                         return false;
                     }
 
+                    // Use validator if available to check client-tenant relationship
+                    if (_clientTenantValidator != null)
+                    {
+                        var isValid = await _clientTenantValidator.ValidateClientBelongsToTenantAsync(
+                            targetClientId, authContext.TenantId, cancellationToken);
+
+                        if (!isValid)
+                        {
+                            _logger.LogWarning(
+                                "TenantAdmin {UserId} attempted to access client {ClientId} outside their tenant {TenantId}",
+                                authContext.UserId, targetClientId, authContext.TenantId);
+                            return false;
+                        }
+                    }
+
                     _logger.LogDebug(
                         "TenantAdmin {UserId} validated for client {ClientId} operation within tenant {TenantId}",
                         authContext.UserId, targetClientId, authContext.TenantId);
                     return true;
                 }
 
-                // No operational context headers specified
                 return true;
 
             case UserType.ClientUser:
                 // ClientUser cannot use operational context headers
                 if (!string.IsNullOrEmpty(targetTenantId) || !string.IsNullOrEmpty(targetClientId))
                 {
-                    _logger.LogWarning(
-                        "ClientUser {UserId} attempted to use operational context headers",
-                        authContext.UserId);
+                    _logger.LogWarning("ClientUser {UserId} attempted to use operational context headers", authContext.UserId);
                     return false;
                 }
                 return true;

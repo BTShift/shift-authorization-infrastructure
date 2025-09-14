@@ -67,8 +67,8 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Tenant-Id"] = "tenant123";
-        httpContext.Request.Headers["X-Operation-Client-Id"] = "client456";
+        httpContext.Request.Headers[OperationalContextHeaders.TenantId] = "tenant123";
+        httpContext.Request.Headers[OperationalContextHeaders.ClientId] = "client456";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.SuperAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("superadmin1");
@@ -88,7 +88,7 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Tenant-Id"] = "tenant123";
+        httpContext.Request.Headers[OperationalContextHeaders.TenantId] = "tenant123";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.SuperAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("superadmin1");
@@ -108,7 +108,7 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Client-Id"] = "client456";
+        httpContext.Request.Headers[OperationalContextHeaders.ClientId] = "client456";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.TenantAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("tenantadmin1");
@@ -129,7 +129,7 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Tenant-Id"] = "tenant999";
+        httpContext.Request.Headers[OperationalContextHeaders.TenantId] = "tenant999";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.TenantAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("tenantadmin1");
@@ -145,7 +145,7 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Client-Id"] = "client456";
+        httpContext.Request.Headers[OperationalContextHeaders.ClientId] = "client456";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.TenantAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("tenantadmin1");
@@ -161,7 +161,7 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Client-Id"] = "client456";
+        httpContext.Request.Headers[OperationalContextHeaders.ClientId] = "client456";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.ClientUser);
         _authContextMock.Setup(x => x.UserId).Returns("clientuser1");
@@ -176,8 +176,8 @@ public class OperationalContextResolverTests
     {
         // Arrange
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers["X-Operation-Tenant-Id"] = "  tenant123  ";
-        httpContext.Request.Headers["X-Operation-Client-Id"] = "  client456  ";
+        httpContext.Request.Headers[OperationalContextHeaders.TenantId] = "  tenant123  ";
+        httpContext.Request.Headers[OperationalContextHeaders.ClientId] = "  client456  ";
 
         _authContextMock.Setup(x => x.UserType).Returns(UserType.SuperAdmin);
         _authContextMock.Setup(x => x.UserId).Returns("superadmin1");

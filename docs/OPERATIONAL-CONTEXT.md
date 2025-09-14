@@ -67,15 +67,30 @@ Content-Type: application/json
 
 ## Implementation Guide
 
-### 1. Inject the Resolver
+### 1. Choose Your Implementation
+
+#### Synchronous Implementation (Default)
+Use when database validation is not required:
+```csharp
+services.AddScoped<IOperationalContextResolver, OperationalContextResolver>();
+```
+
+#### Asynchronous Implementation (With Validation)
+Use when you need database validation for client-tenant relationships:
+```csharp
+services.AddScoped<IClientTenantValidator, YourClientTenantValidator>();
+services.AddScoped<IOperationalContextResolverAsync, OperationalContextResolverAsync>();
+```
+
+### 2. Inject the Resolver
 ```csharp
 public class AccountingService
 {
-    private readonly IOperationalContextResolver _contextResolver;
+    private readonly IOperationalContextResolverAsync _contextResolver;
     private readonly IAuthorizationContext _authContext;
 
     public AccountingService(
-        IOperationalContextResolver contextResolver,
+        IOperationalContextResolverAsync contextResolver,
         IAuthorizationContext authContext)
     {
         _contextResolver = contextResolver;
@@ -84,12 +99,12 @@ public class AccountingService
 }
 ```
 
-### 2. Resolve Operational Context
+### 3. Resolve Operational Context
 ```csharp
 public async Task<IActionResult> GetReports([FromServices] HttpContext httpContext)
 {
-    // Resolve the operational context
-    var operationalContext = _contextResolver.ResolveContext(httpContext, _authContext);
+    // Resolve the operational context (async version)
+    var operationalContext = await _contextResolver.ResolveContextAsync(httpContext, _authContext);
 
     // Get effective IDs
     var effectiveTenantId = operationalContext.GetEffectiveTenantId(_authContext.TenantId);
@@ -102,7 +117,34 @@ public async Task<IActionResult> GetReports([FromServices] HttpContext httpConte
 }
 ```
 
-### 3. Check Operational Context Status
+### 4. Implement Client-Tenant Validator
+```csharp
+public class ClientTenantValidator : IClientTenantValidator
+{
+    private readonly IDbContext _dbContext;
+
+    public async Task<bool> ValidateClientBelongsToTenantAsync(
+        string clientId, string tenantId, CancellationToken cancellationToken)
+    {
+        return await _dbContext.Clients
+            .AnyAsync(c => c.Id == clientId && c.TenantId == tenantId, cancellationToken);
+    }
+
+    public async Task<bool> TenantExistsAsync(string tenantId, CancellationToken cancellationToken)
+    {
+        return await _dbContext.Tenants
+            .AnyAsync(t => t.Id == tenantId, cancellationToken);
+    }
+
+    public async Task<bool> ClientExistsAsync(string clientId, CancellationToken cancellationToken)
+    {
+        return await _dbContext.Clients
+            .AnyAsync(c => c.Id == clientId, cancellationToken);
+    }
+}
+```
+
+### 5. Check Operational Context Status
 ```csharp
 if (operationalContext.IsOperationalContext)
 {
@@ -122,6 +164,36 @@ if (operationalContext.IsOperationalContext)
 3. **Tenant Isolation**: TenantAdmin users cannot access data outside their tenant
 4. **Error Handling**: Unauthorized attempts throw `UnauthorizedAccessException`
 5. **Header Sanitization**: Headers are trimmed and validated for proper format
+6. **Rate Limiting**: Consider implementing rate limiting for operational context usage to prevent abuse
+
+### Rate Limiting Recommendations
+
+To prevent abuse of the operational context feature, implement rate limiting:
+
+```csharp
+// Example using ASP.NET Core rate limiting
+services.AddRateLimiter(options =>
+{
+    options.AddPolicy("OperationalContext", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.Identity?.Name ?? "anonymous",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 100, // 100 requests with operational headers
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
+// Apply to endpoints using operational context
+app.MapControllers()
+   .RequireRateLimiting("OperationalContext");
+```
+
+Consider different limits based on user type:
+- **SuperAdmin**: Higher limits (e.g., 500/minute)
+- **TenantAdmin**: Moderate limits (e.g., 100/minute)
+- **ClientUser**: Not applicable (headers are blocked)
 
 ## Error Scenarios
 
