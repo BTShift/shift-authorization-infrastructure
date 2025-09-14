@@ -74,8 +74,16 @@ public class AuthorizationContextMiddlewareIntegrationTests : IAsyncLifetime
             });
         });
 
-        _app.MapGet("/protected", (IAuthorizationContext context) =>
+        _app.MapGet("/protected", (IServiceProvider serviceProvider) =>
         {
+            var contextService = serviceProvider.GetRequiredService<AuthorizationContextService>();
+            var context = contextService.Context;
+
+            if (context == null)
+            {
+                return Results.Json(new { error = "No authorization context" }, statusCode: 401);
+            }
+
             if (!context.HasPermission("admin:read", AuthorizationScope.Platform))
             {
                 return Results.Json(new { error = "Forbidden" }, statusCode: 403);
@@ -109,15 +117,7 @@ public class AuthorizationContextMiddlewareIntegrationTests : IAsyncLifetime
         // Act
         var response = await _client!.SendAsync(request);
         var content = await response.Content.ReadAsStringAsync();
-
-        // Debug: Log the actual response and token claims
-        Console.WriteLine($"Response Status: {response.StatusCode}");
-        Console.WriteLine($"Response Content: {content}");
-        Console.WriteLine($"JwtRegisteredClaimNames.Sub = '{JwtRegisteredClaimNames.Sub}'");
-        var handler = new JwtSecurityTokenHandler();
-        var jsonToken = handler.ReadJwtToken(token);
-        Console.WriteLine($"Token claims: {string.Join(", ", jsonToken.Claims.Select(c => $"{c.Type}={c.Value}"))}");
-
+        Console.WriteLine($"Response content: {content}");
         var result = JsonSerializer.Deserialize<JsonDocument>(content);
 
         // Assert

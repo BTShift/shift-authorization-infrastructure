@@ -152,8 +152,11 @@ public class ServiceCollectionExtensionsTests
 
         app.UseShiftAuthorization();
 
-        app.MapGet("/test", (IAuthorizationContext? context) =>
+        app.MapGet("/test", (IServiceProvider serviceProvider) =>
         {
+            var contextService = serviceProvider.GetRequiredService<AuthorizationContextService>();
+            var context = contextService.Context;
+
             if (context != null)
             {
                 return Results.Ok(new { userId = context.UserId, userType = context.UserType.ToString() });
@@ -177,6 +180,7 @@ public class ServiceCollectionExtensionsTests
         response.IsSuccessStatusCode.Should().BeTrue();
 
         var content = await response.Content.ReadAsStringAsync();
+        Console.WriteLine($"Response content: {content}");
         content.Should().Contain("\"userId\":\"test-user\"");
         content.Should().Contain("\"userType\":\"TenantAdmin\"");
 
