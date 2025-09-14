@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{48B1244E-7274-45C2-9527-83726B30A5F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shift.Authorization.Infrastructure", "src\Shift.Authorization.Infrastructure\Shift.Authorization.Infrastructure.csproj", "{707FA084-012E-48C6-ACF2-868DBD9ADE8F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{333FB182-8C0D-4FC9-AE36-8683EEF45E21}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shift.Authorization.Infrastructure.Tests", "tests\Shift.Authorization.Infrastructure.Tests\Shift.Authorization.Infrastructure.Tests.csproj", "{176817E4-8CBC-4D26-80FD-7D6DF1CADB57}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{707FA084-012E-48C6-ACF2-868DBD9ADE8F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{707FA084-012E-48C6-ACF2-868DBD9ADE8F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{707FA084-012E-48C6-ACF2-868DBD9ADE8F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{707FA084-012E-48C6-ACF2-868DBD9ADE8F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{176817E4-8CBC-4D26-80FD-7D6DF1CADB57}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{176817E4-8CBC-4D26-80FD-7D6DF1CADB57}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{176817E4-8CBC-4D26-80FD-7D6DF1CADB57}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{176817E4-8CBC-4D26-80FD-7D6DF1CADB57}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{707FA084-012E-48C6-ACF2-868DBD9ADE8F} = {48B1244E-7274-45C2-9527-83726B30A5F7}
+		{176817E4-8CBC-4D26-80FD-7D6DF1CADB57} = {333FB182-8C0D-4FC9-AE36-8683EEF45E21}
+	EndGlobalSection
+EndGlobal

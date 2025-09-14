@@ -1,0 +1,114 @@
+name: Publish NuGet Package
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/Shift.Authorization.Infrastructure/**'
+      - '.github/workflows/publish-package.yml'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_PATH: 'src/Shift.Authorization.Infrastructure/Shift.Authorization.Infrastructure.csproj'
+  PACKAGE_OUTPUT_PATH: ${{ github.workspace }}/nuget
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for version calculation
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Test
+      run: dotnet test --no-restore --verbosity normal --configuration Release
+
+  publish:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.PROJECT_PATH }}
+
+    - name: Extract version from csproj
+      id: version
+      run: |
+        VERSION=$(grep -oPm1 "(?<=<Version>)[^<]+" ${{ env.PROJECT_PATH }})
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "📦 Extracted version: $VERSION"
+
+    - name: Pack
+      run: |
+        dotnet pack ${{ env.PROJECT_PATH }} \
+          --configuration Release \
+          --output ${{ env.PACKAGE_OUTPUT_PATH }}
+
+    - name: Push to GitHub Packages
+      run: |
+        dotnet nuget push "${{ env.PACKAGE_OUTPUT_PATH }}/*.nupkg" \
+          --source "https://nuget.pkg.github.com/BTShift/index.json" \
+          --api-key ${{ secrets.GITHUB_TOKEN }} \
+          --skip-duplicate
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: "v${{ steps.version.outputs.version }}"
+        release_name: "Shift.Authorization.Infrastructure v${{ steps.version.outputs.version }}"
+        body: |
+          ## Shift.Authorization.Infrastructure v${{ steps.version.outputs.version }}
+
+          This release contains the Shift Authorization Infrastructure package with:
+          - Core IAuthorizationContext interface for scope-based authorization
+          - Multi-tenant context support with tenant and user scoping
+          - Foundation for 3-layer authorization scope system
+          - Easy integration with ASP.NET Core and gRPC services
+
+          ### Usage
+          ```xml
+          <PackageReference Include="Shift.Authorization.Infrastructure" Version="${{ steps.version.outputs.version }}" />
+          ```
+
+          ### Package Registry
+          Published to: https://github.com/BTShift/shift-authorization-infrastructure/packages
+        draft: false
+        prerelease: false
+
+    - name: Create Release Notes Summary
+      run: |
+        echo "### 📦 Published Package" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Package:** Shift.Authorization.Infrastructure" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Installation" >> $GITHUB_STEP_SUMMARY
+        echo '```xml' >> $GITHUB_STEP_SUMMARY
+        echo '<PackageReference Include="Shift.Authorization.Infrastructure" Version="${{ steps.version.outputs.version }}" />' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
