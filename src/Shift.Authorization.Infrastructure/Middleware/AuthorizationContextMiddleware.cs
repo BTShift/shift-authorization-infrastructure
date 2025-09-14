@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,6 +25,7 @@ public class AuthorizationContextMiddleware
     private readonly AuthorizationOptions _options;
     private readonly JwtSecurityTokenHandler _tokenHandler;
     private readonly TokenValidationParameters _tokenValidationParameters;
+    private readonly IMemoryCache? _tokenCache;
 
     /// <summary>
     /// Initializes a new instance of the AuthorizationContextMiddleware class
@@ -31,10 +33,12 @@ public class AuthorizationContextMiddleware
     /// <param name="next">The next middleware in the pipeline</param>
     /// <param name="logger">Logger for the middleware</param>
     /// <param name="options">Authorization configuration options</param>
+    /// <param name="tokenCache">Optional memory cache for token validation caching</param>
     public AuthorizationContextMiddleware(
         RequestDelegate next,
         ILogger<AuthorizationContextMiddleware> logger,
-        IOptions<AuthorizationOptions> options)
+        IOptions<AuthorizationOptions> options,
+        IMemoryCache? tokenCache = null)
     {
         ArgumentNullException.ThrowIfNull(next);
         ArgumentNullException.ThrowIfNull(logger);
@@ -45,6 +49,7 @@ public class AuthorizationContextMiddleware
         _options = options.Value;
         _tokenHandler = new JwtSecurityTokenHandler();
         _tokenValidationParameters = CreateTokenValidationParameters();
+        _tokenCache = tokenCache;
     }
 
     /// <summary>
@@ -64,7 +69,7 @@ public class AuthorizationContextMiddleware
             if (claimsPrincipal == null)
             {
                 // No valid authentication - proceed without authorization context
-                _logger.LogDebug("No valid authentication found in request");
+                _logger.LogDebug("No valid authentication found in request for path {Path}", context.Request.Path);
                 await _next(context);
                 return;
             }
@@ -81,56 +86,11 @@ public class AuthorizationContextMiddleware
             // Handle operational context if enabled
             if (_options.EnableOperationalContext)
             {
-                var operationalContextResolver = context.RequestServices.GetService<IOperationalContextResolver>();
-                if (operationalContextResolver != null)
+                authContext = await ResolveOperationalContextAsync(context, authContext);
+                if (authContext == null)
                 {
-                    try
-                    {
-                        var operationalContext = operationalContextResolver.ResolveContext(context, authContext);
-
-                        // Apply operational context to authorization context
-                        if (operationalContext.IsOperationalContext)
-                        {
-                            authContext = CreateOperationalAuthorizationContext(authContext, operationalContext);
-                            _logger.LogDebug(
-                                "Operational context applied: TenantId={TenantId}, ClientId={ClientId}",
-                                operationalContext.OperationTenantId,
-                                operationalContext.OperationClientId);
-                        }
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        _logger.LogWarning(ex, "Unauthorized operational context attempt");
-                        await HandleAuthorizationFailureAsync(context, "Unauthorized operational context", StatusCodes.Status403Forbidden);
-                        return;
-                    }
-                }
-                else if (_options.EnableAsyncOperationalContextResolution)
-                {
-                    // Try async resolver
-                    var asyncResolver = context.RequestServices.GetService<IOperationalContextResolverAsync>();
-                    if (asyncResolver != null)
-                    {
-                        try
-                        {
-                            var operationalContext = await asyncResolver.ResolveContextAsync(context, authContext);
-
-                            if (operationalContext.IsOperationalContext)
-                            {
-                                authContext = CreateOperationalAuthorizationContext(authContext, operationalContext);
-                                _logger.LogDebug(
-                                    "Async operational context applied: TenantId={TenantId}, ClientId={ClientId}",
-                                    operationalContext.OperationTenantId,
-                                    operationalContext.OperationClientId);
-                            }
-                        }
-                        catch (UnauthorizedAccessException ex)
-                        {
-                            _logger.LogWarning(ex, "Unauthorized async operational context attempt");
-                            await HandleAuthorizationFailureAsync(context, "Unauthorized operational context", StatusCodes.Status403Forbidden);
-                            return;
-                        }
-                    }
+                    // Operational context resolution failed with authorization error
+                    return;
                 }
             }
 
@@ -170,6 +130,17 @@ public class AuthorizationContextMiddleware
 
         try
         {
+            // Check cache first if enabled
+            if (_tokenCache != null && _options.EnableTokenCaching)
+            {
+                var cacheKey = $"jwt_validation_{token.GetHashCode()}";
+                if (_tokenCache.TryGetValue<ClaimsPrincipal>(cacheKey, out var cachedPrincipal))
+                {
+                    _logger.LogDebug("JWT token retrieved from cache for path {Path}", context.Request.Path);
+                    return Task.FromResult<ClaimsPrincipal?>(cachedPrincipal);
+                }
+            }
+
             var principal = _tokenHandler.ValidateToken(token, _tokenValidationParameters, out var validatedToken);
 
             if (validatedToken is not JwtSecurityToken jwtToken)
@@ -178,8 +149,20 @@ public class AuthorizationContextMiddleware
                 return Task.FromResult<ClaimsPrincipal?>(null);
             }
 
-            _logger.LogDebug("JWT token validated successfully for user {UserId}",
-                principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? "unknown");
+            // Cache the validated token if caching is enabled
+            if (_tokenCache != null && _options.EnableTokenCaching && validatedToken.ValidTo > DateTime.UtcNow)
+            {
+                var cacheKey = $"jwt_validation_{token.GetHashCode()}";
+                var cacheExpiry = validatedToken.ValidTo.Subtract(DateTime.UtcNow);
+                if (cacheExpiry > TimeSpan.Zero)
+                {
+                    _tokenCache.Set(cacheKey, principal, cacheExpiry);
+                }
+            }
+
+            _logger.LogDebug("JWT token validated successfully for user {UserId} on path {Path}",
+                principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? "unknown",
+                context.Request.Path);
 
             return Task.FromResult<ClaimsPrincipal?>(principal);
         }
@@ -198,7 +181,7 @@ public class AuthorizationContextMiddleware
     /// <summary>
     /// Extracts the JWT token from the Authorization header
     /// </summary>
-    private static string? ExtractTokenFromHeader(HttpContext context)
+    private string? ExtractTokenFromHeader(HttpContext context)
     {
         var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
 
@@ -214,7 +197,17 @@ public class AuthorizationContextMiddleware
             return null;
         }
 
-        return authHeader[bearerPrefix.Length..].Trim();
+        var token = authHeader[bearerPrefix.Length..].Trim();
+
+        // Check token size to prevent header size issues
+        if (token.Length > _options.MaxTokenSize)
+        {
+            _logger.LogWarning("JWT token exceeds maximum size of {MaxSize} bytes. Token size: {TokenSize}",
+                _options.MaxTokenSize, token.Length);
+            return null;
+        }
+
+        return token;
     }
 
     /// <summary>
@@ -261,6 +254,105 @@ public class AuthorizationContextMiddleware
         // Since AuthorizationContext is immutable in current design,
         // we would need to extend it or use a wrapper
         _logger.LogDebug("Applied {Count} custom permission mappings", _options.PermissionMappings.Count);
+    }
+
+    /// <summary>
+    /// Resolves operational context based on configured priority
+    /// </summary>
+    private async Task<AuthorizationContext?> ResolveOperationalContextAsync(
+        HttpContext context,
+        AuthorizationContext authContext)
+    {
+        OperationalContext? operationalContext = null;
+
+        if (_options.OperationalContextPriority == OperationalContextPriority.AsyncFirst &&
+            _options.EnableAsyncOperationalContextResolution)
+        {
+            // Try async first
+            var asyncResolver = context.RequestServices.GetService<IOperationalContextResolverAsync>();
+            if (asyncResolver != null)
+            {
+                try
+                {
+                    operationalContext = await asyncResolver.ResolveContextAsync(context, authContext);
+                    if (operationalContext.IsOperationalContext)
+                    {
+                        _logger.LogDebug(
+                            "Async operational context applied: TenantId={TenantId}, ClientId={ClientId}",
+                            operationalContext.OperationTenantId,
+                            operationalContext.OperationClientId);
+                    }
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "Unauthorized async operational context attempt");
+                    await HandleAuthorizationFailureAsync(context, "Unauthorized operational context", StatusCodes.Status403Forbidden);
+                    return null;
+                }
+            }
+        }
+
+        // If no operational context from async (or sync first), try sync
+        if (operationalContext == null || !operationalContext.IsOperationalContext)
+        {
+            var syncResolver = context.RequestServices.GetService<IOperationalContextResolver>();
+            if (syncResolver != null)
+            {
+                try
+                {
+                    operationalContext = syncResolver.ResolveContext(context, authContext);
+                    if (operationalContext.IsOperationalContext)
+                    {
+                        _logger.LogDebug(
+                            "Operational context applied: TenantId={TenantId}, ClientId={ClientId}",
+                            operationalContext.OperationTenantId,
+                            operationalContext.OperationClientId);
+                    }
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "Unauthorized operational context attempt");
+                    await HandleAuthorizationFailureAsync(context, "Unauthorized operational context", StatusCodes.Status403Forbidden);
+                    return null;
+                }
+            }
+        }
+
+        // If still no operational context and async wasn't tried yet, try it now
+        if ((operationalContext == null || !operationalContext.IsOperationalContext) &&
+            _options.OperationalContextPriority == OperationalContextPriority.SyncFirst &&
+            _options.EnableAsyncOperationalContextResolution)
+        {
+            var asyncResolver = context.RequestServices.GetService<IOperationalContextResolverAsync>();
+            if (asyncResolver != null)
+            {
+                try
+                {
+                    operationalContext = await asyncResolver.ResolveContextAsync(context, authContext);
+                    if (operationalContext.IsOperationalContext)
+                    {
+                        _logger.LogDebug(
+                            "Async operational context applied: TenantId={TenantId}, ClientId={ClientId}",
+                            operationalContext.OperationTenantId,
+                            operationalContext.OperationClientId);
+                    }
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "Unauthorized async operational context attempt");
+                    await HandleAuthorizationFailureAsync(context, "Unauthorized operational context", StatusCodes.Status403Forbidden);
+                    return null;
+                }
+            }
+        }
+
+        // Apply operational context if found
+        if (operationalContext != null && operationalContext.IsOperationalContext)
+        {
+            return CreateOperationalAuthorizationContext(authContext, operationalContext);
+        }
+
+        return authContext;
     }
 
     /// <summary>

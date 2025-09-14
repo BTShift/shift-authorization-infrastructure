@@ -69,6 +69,18 @@ public static class ServiceCollectionExtensions
         // Register authorization service
         services.TryAddScoped<ScopeBasedAuthorizationService>();
 
+        // Register memory cache for token caching if not already registered
+        if (options.EnableTokenCaching)
+        {
+            services.AddMemoryCache();
+        }
+
+        // Register rate limiter if rate limiting is enabled
+        if (options.MaxFailedAuthAttempts > 0)
+        {
+            services.TryAddSingleton<AuthenticationRateLimiter>();
+        }
+
         return services;
     }
 

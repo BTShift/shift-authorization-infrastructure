@@ -64,6 +64,47 @@ public class AuthorizationOptions
     /// Gets or sets whether async operational context resolution is enabled
     /// </summary>
     public bool EnableAsyncOperationalContextResolution { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether token validation caching is enabled
+    /// </summary>
+    public bool EnableTokenCaching { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the priority for operational context resolution (Sync or Async first)
+    /// </summary>
+    public OperationalContextPriority OperationalContextPriority { get; set; } = OperationalContextPriority.SyncFirst;
+
+    /// <summary>
+    /// Gets or sets the maximum number of failed authentication attempts before rate limiting
+    /// </summary>
+    public int MaxFailedAuthAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Gets or sets the time window for tracking failed authentication attempts
+    /// </summary>
+    public TimeSpan FailedAuthTimeWindow { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Gets or sets the maximum size for JWT tokens (to prevent header size issues)
+    /// </summary>
+    public int MaxTokenSize { get; set; } = 8192; // 8KB default
+}
+
+/// <summary>
+/// Defines the priority for operational context resolution
+/// </summary>
+public enum OperationalContextPriority
+{
+    /// <summary>
+    /// Try synchronous resolver first, then async
+    /// </summary>
+    SyncFirst,
+
+    /// <summary>
+    /// Try asynchronous resolver first, then sync
+    /// </summary>
+    AsyncFirst
 }
 
 /// <summary>
