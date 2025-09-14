@@ -8,7 +8,7 @@
 
     <!-- Package Information -->
     <PackageId>Shift.Authorization.Infrastructure</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>BTShift Team</Authors>
     <Company>BTShift</Company>
     <Product>Shift Platform</Product>
@@ -19,7 +19,7 @@
     <PackageTags>authorization;multi-tenant;saas;scope;context;btshift</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <PackageReleaseNotes>Initial release - Core authorization infrastructure foundation</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.1.0 - Implement IAuthorizationContext interface and JWT-based authorization system with 3-layer scope model (Platform/Tenant/Own)</PackageReleaseNotes>
 
     <!-- Build Configuration -->
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
