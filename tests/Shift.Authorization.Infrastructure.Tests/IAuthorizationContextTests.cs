@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Security.Claims;
 using Xunit;
 
 namespace Shift.Authorization.Infrastructure.Tests;
@@ -24,24 +25,48 @@ public class IAuthorizationContextTests
         var properties = type.GetProperties();
 
         // Assert
-        properties.Should().HaveCount(3);
+        properties.Should().HaveCount(5);
         properties.Should().Contain(p => p.Name == "UserId" && p.PropertyType == typeof(string));
         properties.Should().Contain(p => p.Name == "TenantId" && p.PropertyType == typeof(string));
-        properties.Should().Contain(p => p.Name == "Scopes" && p.PropertyType == typeof(IEnumerable<string>));
+        properties.Should().Contain(p => p.Name == "ClientId" && p.PropertyType == typeof(string));
+        properties.Should().Contain(p => p.Name == "UserType" && p.PropertyType == typeof(UserType));
+        properties.Should().Contain(p => p.Name == "Permissions" && p.PropertyType == typeof(List<string>));
     }
 
     [Fact]
-    public void IAuthorizationContextShouldHaveHasScopeMethod()
+    public void IAuthorizationContextShouldHaveExpectedMethods()
     {
         // Arrange & Act
         var type = typeof(IAuthorizationContext);
-        var method = type.GetMethod("HasScope");
 
         // Assert
-        method.Should().NotBeNull();
-        method!.ReturnType.Should().Be(typeof(bool));
-        method.GetParameters().Should().HaveCount(1);
-        method.GetParameters()[0].ParameterType.Should().Be(typeof(string));
-        method.GetParameters()[0].Name.Should().Be("scope");
+        // GetRequiredScope method
+        var getRequiredScopeMethod = type.GetMethod("GetRequiredScope");
+        getRequiredScopeMethod.Should().NotBeNull();
+        getRequiredScopeMethod!.ReturnType.Should().Be(typeof(AuthorizationScope));
+        getRequiredScopeMethod.GetParameters().Should().HaveCount(1);
+        getRequiredScopeMethod.GetParameters()[0].ParameterType.Should().Be(typeof(string));
+
+        // HasPermission method
+        var hasPermissionMethod = type.GetMethod("HasPermission");
+        hasPermissionMethod.Should().NotBeNull();
+        hasPermissionMethod!.ReturnType.Should().Be(typeof(bool));
+        hasPermissionMethod.GetParameters().Should().HaveCount(2);
+        hasPermissionMethod.GetParameters()[0].ParameterType.Should().Be(typeof(string));
+        hasPermissionMethod.GetParameters()[1].ParameterType.Should().Be(typeof(AuthorizationScope));
+
+        // CanAccessTenant method
+        var canAccessTenantMethod = type.GetMethod("CanAccessTenant");
+        canAccessTenantMethod.Should().NotBeNull();
+        canAccessTenantMethod!.ReturnType.Should().Be(typeof(bool));
+        canAccessTenantMethod.GetParameters().Should().HaveCount(1);
+        canAccessTenantMethod.GetParameters()[0].ParameterType.Should().Be(typeof(string));
+
+        // CanAccessClient method
+        var canAccessClientMethod = type.GetMethod("CanAccessClient");
+        canAccessClientMethod.Should().NotBeNull();
+        canAccessClientMethod!.ReturnType.Should().Be(typeof(bool));
+        canAccessClientMethod.GetParameters().Should().HaveCount(1);
+        canAccessClientMethod.GetParameters()[0].ParameterType.Should().Be(typeof(string));
     }
 }
